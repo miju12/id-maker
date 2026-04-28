@@ -1,0 +1,5 @@
+streamlit
+Pillow
+python-docx
+pypdf
+streamlit-cropper
