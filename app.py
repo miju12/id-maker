@@ -65,10 +65,10 @@ with tab1:
 
 
 # ==========================================
-# TAB 2: PASSPORT PHOTO MAKER
+# TAB 2: PASSPORT PHOTO MAKER (Updated for Multiple Files)
 # ==========================================
 with tab2:
-    st.markdown("Auto-crop and densely pack photos into an A4 Word document.")
+    st.markdown("Auto-crop and densely pack multiple photos into an A4 Word document.")
     
     size_options = {
         "India Passport (35 x 45 mm)": (35, 45),
@@ -80,7 +80,7 @@ with tab2:
     col1, col2 = st.columns(2)
     with col1:
         selected_size = st.selectbox("Select Passport Size", list(size_options.keys()), key="select_pass_2")
-        quantity = st.number_input("Number of Photos", min_value=1, max_value=200, value=7, step=1, key="num_qty_2")
+        quantity = st.number_input("Copies per Photo", min_value=1, max_value=200, value=7, step=1, key="num_qty_2")
     with col2:
         if selected_size == "Custom Size":
             pass_width_mm = st.number_input("Width (mm)", value=35.0, step=1.0, key="pass_w_2")
@@ -90,36 +90,47 @@ with tab2:
             st.info(f"Dimensions: {pass_width_mm}mm x {pass_height_mm}mm")
 
     add_cut_lines = st.checkbox("Add Dotted Cutting Lines", value=True, key="check_cut_2")
-    uploaded_pass = st.file_uploader("Upload Portrait Photo...", type=["jpg", "jpeg", "png"], key="pass_uploader")
+    
+    # Enabled multiple file uploads
+    uploaded_passes = st.file_uploader("Upload Portrait Photos...", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="pass_uploader")
 
-    if uploaded_pass is not None:
-        pass_img = Image.open(uploaded_pass).convert("RGB")
-        target_w_px = int((pass_width_mm / 25.4) * 300)
-        target_h_px = int((pass_height_mm / 25.4) * 300)
+    if uploaded_passes:
+        processed_images = []
         
-        cropped_pass = ImageOps.fit(pass_img, (target_w_px, target_h_px), Image.Resampling.LANCZOS)
+        st.subheader("Processed Previews")
+        # Display previews dynamically based on how many images were uploaded
+        cols = st.columns(min(len(uploaded_passes), 4) if len(uploaded_passes) > 0 else 1)
         
-        if add_cut_lines:
-            draw = ImageDraw.Draw(cropped_pass)
-            dash_len = 15
-            line_width = 3
-            w, h = cropped_pass.size
-            for x in range(0, w, dash_len * 2):
-                draw.line([(x, 0), (x + dash_len, 0)], fill="gray", width=line_width)
-                draw.line([(x, h-1), (x + dash_len, h-1)], fill="gray", width=line_width)
-            for y in range(0, h, dash_len * 2):
-                draw.line([(0, y), (0, y + dash_len)], fill="gray", width=line_width)
-                draw.line([(w-1, y), (w-1, y + dash_len)], fill="gray", width=line_width)
+        for idx, uploaded_pass in enumerate(uploaded_passes):
+            pass_img = Image.open(uploaded_pass).convert("RGB")
+            target_w_px = int((pass_width_mm / 25.4) * 300)
+            target_h_px = int((pass_height_mm / 25.4) * 300)
+            
+            cropped_pass = ImageOps.fit(pass_img, (target_w_px, target_h_px), Image.Resampling.LANCZOS)
+            
+            if add_cut_lines:
+                draw = ImageDraw.Draw(cropped_pass)
+                dash_len = 15
+                line_width = 3
+                w, h = cropped_pass.size
+                for x in range(0, w, dash_len * 2):
+                    draw.line([(x, 0), (x + dash_len, 0)], fill="gray", width=line_width)
+                    draw.line([(x, h-1), (x + dash_len, h-1)], fill="gray", width=line_width)
+                for y in range(0, h, dash_len * 2):
+                    draw.line([(0, y), (0, y + dash_len)], fill="gray", width=line_width)
+                    draw.line([(w-1, y), (w-1, y + dash_len)], fill="gray", width=line_width)
 
-        st.image(cropped_pass, caption="Preview with Cutting Lines", use_container_width=False)
-        img_buffer = io.BytesIO()
-        cropped_pass.save(img_buffer, format="JPEG", quality=95)
+            processed_images.append(cropped_pass)
+            
+            with cols[idx % len(cols)]:
+                st.image(cropped_pass, use_container_width=True)
 
+        total_photos = quantity * len(processed_images)
         cols_portrait = 200 // pass_width_mm
-        rows_portrait = math.ceil(quantity / cols_portrait) if cols_portrait > 0 else 999
+        rows_portrait = math.ceil(total_photos / cols_portrait) if cols_portrait > 0 else 999
         
         cols_landscape = 287 // pass_width_mm
-        rows_landscape = math.ceil(quantity / cols_landscape) if cols_landscape > 0 else 999
+        rows_landscape = math.ceil(total_photos / cols_landscape) if cols_landscape > 0 else 999
 
         best_orientation = "Landscape" if rows_landscape < rows_portrait else "Portrait"
 
@@ -141,21 +152,33 @@ with tab2:
             p.paragraph_format.space_after = Pt(2) 
             run = p.add_run()
             
-            for _ in range(quantity):
-                img_buffer.seek(0) 
-                run.add_picture(img_buffer, width=Mm(pass_width_mm), height=Mm(pass_height_mm))
-                run.add_text(" ") 
+            for img in processed_images:
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format="JPEG", quality=95)
+                
+                for _ in range(quantity):
+                    img_buffer.seek(0) 
+                    run.add_picture(img_buffer, width=Mm(pass_width_mm), height=Mm(pass_height_mm))
+                    # Adds EXACTLY two spaces between photos
+                    run.add_text("  ") 
                 
             docx_buffer = io.BytesIO()
             doc.save(docx_buffer)
             return docx_buffer.getvalue()
 
-        st.success(f"Calculated best layout: **{best_orientation} A4** to minimize paper loss.")
-        st.download_button("Generate Optimized Word Doc", data=generate_passport_doc(best_orientation), file_name="passports_print_ready.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary", key="dl_2")
+        st.success(f"Calculated best layout: **{best_orientation} A4** to minimize paper loss for {total_photos} total photos.")
+        st.download_button(
+            "Generate Optimized Word Doc", 
+            data=generate_passport_doc(best_orientation), 
+            file_name="passports_print_ready.docx", 
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
+            type="primary", 
+            key="dl_2"
+        )
 
 
 # ==========================================
-# TAB 3: ID FRONT & BACK COMBINER (Updated with Proxy Cropping)
+# TAB 3: ID FRONT & BACK COMBINER
 # ==========================================
 with tab3:
     st.markdown("Crop, merge, and perfectly align the front and back of an ID (Aadhaar, PAN, etc.) onto a single A4 page.")
@@ -175,12 +198,10 @@ with tab3:
     front_cropped = None
     back_cropped = None
 
-    # Helper function to scale down images for the UI, but crop the high-res original
     def get_high_res_crop(raw_image, key, box_color):
         w, h = raw_image.size
-        disp_w = 350 # Forces it to fit cleanly inside the Streamlit column
+        disp_w = 350 
         
-        # Create a tiny version of the image just for the UI
         if w > disp_w:
             disp_h = int(h * (disp_w / w))
             disp_img = raw_image.resize((disp_w, disp_h), Image.Resampling.LANCZOS)
@@ -190,10 +211,8 @@ with tab3:
             scale = 1.0
             
         st.caption("Drag the box for free form crop")
-        # return_type='box' gets the coordinates instead of the low-res image
         box = st_cropper(disp_img, realtime_update=True, box_color=box_color, aspect_ratio=None, return_type='box', key=key)
         
-        # Map the low-res coordinates back to the high-res original
         if box:
             left = int(box['left'] * scale)
             top = int(box['top'] * scale)
@@ -221,11 +240,9 @@ with tab3:
         st.subheader("Processed Printable Preview (Auto-Resized to Fixed Dimensions)")
         col_prev1, col_prev2 = st.columns(2)
         
-        # Fixed size calculated for 300 DPI
         target_w_px_3 = int((combine_width / 25.4) * 300)
         target_h_px_3 = int((combine_height / 25.4) * 300)
         
-        # AUTOMATICALLY stretch/resize the high-res crop to the fixed size
         front_final_3 = front_cropped.resize((target_w_px_3, target_h_px_3), Image.Resampling.LANCZOS)
         back_final_3 = back_cropped.resize((target_w_px_3, target_h_px_3), Image.Resampling.LANCZOS)
             
